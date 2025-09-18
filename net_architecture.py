@@ -13,7 +13,7 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(128, 64)
         self.fc4 = nn.Linear(64, 32)
         self.fc5 = nn.Linear(32, num_classes)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=0.1)
         self.bn1 = nn.BatchNorm1d(64) # 256
         self.bn2 = nn.BatchNorm1d(128) # 256
         self.bn3 = nn.BatchNorm1d(64) # 128
