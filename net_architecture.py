@@ -6,18 +6,18 @@ import torch.optim as optim
 class Net(nn.Module):
     def __init__(self, input_dim, num_classes):
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 256)
+        self.fc1 = nn.Linear(input_dim, 64)
         self.relu = nn.ReLU()
         self.gelu = nn.GELU()
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.fc5 = nn.Linear(128, num_classes)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 32)
+        self.fc5 = nn.Linear(32, num_classes)
         self.dropout = nn.Dropout(p=0.2)
-        self.bn1 = nn.BatchNorm1d(256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.bn3 = nn.BatchNorm1d(128)
-        self.bn4 = nn.BatchNorm1d(128)
+        self.bn1 = nn.BatchNorm1d(64) # 256
+        self.bn2 = nn.BatchNorm1d(128) # 256
+        self.bn3 = nn.BatchNorm1d(64) # 128
+        self.bn4 = nn.BatchNorm1d(32)  # 128
         
     def forward(self, x):
         
