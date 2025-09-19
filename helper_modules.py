@@ -70,23 +70,30 @@ def phase2_preprocess_data(df_in):
     df['Month'] = df['Timestamp'].dt.month
     df['Weekday'] = df['Timestamp'].dt.weekday
     df['Minute'] = df['Timestamp'].dt.minute
-    # # sin and cos transformation for cyclical features
-    # df['Hour_sin'] = np.sin(2 * np.pi * df['Hour'] / 24)
-    # df['Hour_cos'] = np.cos(2 * np.pi * df['Hour'] / 24)
-    # df['DOW_sin'] = np.sin(2 * np.pi * df['DOW'] / 7)
-    # df['DOW_cos'] = np.cos(2 * np.pi * df['DOW'] / 7)
+    # sin and cos transformation for cyclical features
+    df['Hour_sin'] = np.sin(2 * np.pi * df['Hour'] / 24)
+    df['Hour_cos'] = np.cos(2 * np.pi * df['Hour'] / 24)
+    df['DOW_sin'] = np.sin(2 * np.pi * df['DOW'] / 7)
+    df['DOW_cos'] = np.cos(2 * np.pi * df['DOW'] / 7)
 
-    # # weather features
-    # df = add_weather_features(df)
+    # weather features
+    df = add_weather_features(df)
 
     # Build seasonal features
     df['Is_Weekend'] = df['Weekday'].isin([5, 6]).astype(int)
     df['Is_Summer'] = df['Month'].isin([5, 6, 7, 8]).astype(int)
     df['Is_Winter'] = df['Month'].isin([12, 1, 2, 3]).astype(int)
-    # # Create hour of day categories
-    # df['Is_Afternoon'] = df['Hour'].isin(range(12, 18)).astype(int)
-    # df['Is_Evening'] = df['Hour'].isin(range(18, 24)).astype(int)
+    # Create hour of day categories
+    df['Is_Afternoon'] = df['Hour'].isin(range(12, 18)).astype(int)
+    df['Is_Evening'] = df['Hour'].isin(range(18, 24)).astype(int)
     # drop unused columns
     # Note: since this is phase-2 training, we keep 'Demand_Response_Flag' column
     df.drop(columns=['Timestamp_Local','Timestamp','Site'], inplace=True)
+    return df
+
+def perform_one_hot_encode(df, col_name='Demand_Response_Flag'):
+    # One-hot encode using 0/1 for each unique value in Demand_Response_Flag
+    site_dummies = pd.get_dummies(df[col_name], prefix=col_name, dtype=int)
+    df = pd.concat([df, site_dummies], axis=1)
+    df.drop(columns=[col_name], inplace=True)
     return df
