@@ -261,7 +261,7 @@ def phase2_preprocess_data(df_in):
     # Convert 'Timestamp' to datetime
     df['Timestamp'] = pd.to_datetime(df['Timestamp_Local'])
     # time features
-    freezed_mins = 60
+    freezed_mins = 15
     df = add_time_features(
         df,
         ts_col="Timestamp",
