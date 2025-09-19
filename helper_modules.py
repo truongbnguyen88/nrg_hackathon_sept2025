@@ -209,13 +209,13 @@ def add_leak_safe_features(
     g[f"{prefix}_delta_1"]  = s.shift(freeze_steps) - s.shift(freeze_steps + 1)
     g[f"{prefix}_pctchg_1"] = (s.shift(freeze_steps) - s.shift(freeze_steps + 1)) / (np.abs(s.shift(freeze_steps + 1)) + eps)
 
-    # Anomalies vs longer windows (e.g., 6h & 24h) using the last known value at freeze time
-    if 360 in steps_map:
-        m = 360
-        g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
-    if 1440 in steps_map:
-        m = 1440
-        g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
+    # # Anomalies vs longer windows (e.g., 6h & 24h) using the last known value at freeze time
+    # if 360 in steps_map:
+    #     m = 360
+    #     g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
+    # if 1440 in steps_map:
+    #     m = 1440
+    #     g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
 
     # --------- Cleanup ---------
     g.drop(columns=["_ts"], inplace=True)
