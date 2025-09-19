@@ -24,8 +24,6 @@ def add_time_features(
     df,
     ts_col,
     tz="America/Kentucky/Louisville",
-    id_col=None,                 # set to an ID column if you want per-entity interarrival
-    fourier_orders={"day": 4, "week": 3, "year": 4},  # tune as needed
 ):
     out = df.copy()
     # 1) Parse timestamp → UTC → local tz
@@ -33,7 +31,7 @@ def add_time_features(
     out["_ts_local"] = ts  # keep a tz-aware working column
 
     # 2) Calendar basics
-    out["year"] = ts.dt.year
+    # out["year"] = ts.dt.year
     out["quarter"] = ts.dt.quarter
     out["month"] = ts.dt.month
     out["week"] = ts.dt.isocalendar().week.astype(int)
@@ -78,10 +76,12 @@ def add_time_features(
     out.drop(columns=["_ts_local"], inplace=True)
     return out
 
-def add_leak_safe_power_features(
+
+def add_leak_safe_features(
     df,
     ts_col="Timestamp_Local",
-    pow_col="Building_Power_kW",
+    ft_col="Building_Power_kW",
+    prefix="P",
     freeze_minutes=15                   # don’t use info closer than this to T
 ):
     g = df.copy()
@@ -95,17 +95,26 @@ def add_leak_safe_power_features(
     steps_1h  = to_steps(60)
     steps_3h  = to_steps(180)
     steps_6h  = to_steps(360)
+    steps_12h = to_steps(720)
     steps_24h = to_steps(1440)
     freeze_steps = to_steps(freeze_minutes)
 
-    s = g[pow_col].astype(float)
+    s = g[ft_col].astype(float)
 
     # Lags (at least freeze_steps into the past)
-    g["P_lag_1"]   = s.shift(1 + (freeze_steps-1))
-    g["P_lag_1h"]  = s.shift(steps_1h + (freeze_steps-1))
-    g["P_lag_3h"]  = s.shift(steps_3h + (freeze_steps-1))
-    g["P_lag_6h"]  = s.shift(steps_6h + (freeze_steps-1))
-    g["P_lag_24h"] = s.shift(steps_24h + (freeze_steps-1))
+    g[f"{prefix}_lag_1"]   = s.shift(1 + (freeze_steps-1))
+    g[f"{prefix}_lag_1h"]  = s.shift(steps_1h + (freeze_steps-1))
+    g[f"{prefix}_lag_3h"]  = s.shift(steps_3h + (freeze_steps-1))
+    g[f"{prefix}_lag_6h"]  = s.shift(steps_6h + (freeze_steps-1))
+    g[f"{prefix}_lag_12h"] = s.shift(steps_12h + (freeze_steps-1))
+    g[f"{prefix}_lag_24h"] = s.shift(steps_24h + (freeze_steps-1))
+    # Same-hour yesterday/last week baselines (safe by construction)
+    g[f"{prefix}_same_hour_yday"] = s.shift(steps_24h)
+    g[f"{prefix}_same_hour_lweek"] = s.shift(7*steps_24h)
+    # Slopes / changes (past-only)
+    eps = 1e-6
+    g[f"{prefix}_delta_1"]  = s.shift(freeze_steps) - s.shift(freeze_steps+1)
+    g[f"{prefix}_pctchg_1"] = (s.shift(freeze_steps) - s.shift(freeze_steps+1)) / (np.abs(s.shift(freeze_steps+1)) + eps)
     g.drop(columns=["ts"], inplace=True)
     return g
 
@@ -149,23 +158,39 @@ def phase2_preprocess_data(df_in):
     # Convert 'Timestamp' to datetime
     df['Timestamp'] = pd.to_datetime(df['Timestamp_Local'])
     # time features
+    freezed_mins = 120
     df = add_time_features(
         df,
         ts_col="Timestamp",
         tz="Australia/Sydney",        # ← Wollongong / NSW
-        fourier_orders={"day": 6, "week": 4, "year": 6},
     )
-    df = add_leak_safe_power_features(
+    df = add_leak_safe_features(
         df,
-        ts_col="Timestamp",
-        pow_col="Building_Power_kW",
-        freeze_minutes=60                   # don’t use info closer than this to T
+        ts_col="Timestamp_Local",
+        ft_col="Building_Power_kW",
+        prefix="P",
+        freeze_minutes=freezed_mins                   # don’t use info closer than this to T
+    )
+    df = add_leak_safe_features(
+        df,
+        ts_col="Timestamp_Local",
+        ft_col="Global_Horizontal_Radiation_W/m2",
+        prefix="W",
+        freeze_minutes=freezed_mins                   # don’t use info closer than this to T
+    )
+    df = add_leak_safe_features(
+        df,
+        ts_col="Timestamp_Local",
+        ft_col="Dry_Bulb_Temperature_C",
+        prefix="T",
+        freeze_minutes=freezed_mins                   # don’t use info closer than this to T
     )
     # weather features
     # df = add_weather_features(df)
     # drop unused columns
     # Note: since this is phase-2 training, we keep 'Demand_Response_Flag' column
-    df.drop(columns=['Timestamp_Local','Timestamp','Site','Building_Power_kW'], inplace=True)
+    df.drop(columns=['Timestamp_Local','Timestamp','Site',
+                     'Building_Power_kW','Global_Horizontal_Radiation_W/m2','Dry_Bulb_Temperature_C'], inplace=True)
     return df
 
 def perform_one_hot_encode(df, col_name='Demand_Response_Flag'):
