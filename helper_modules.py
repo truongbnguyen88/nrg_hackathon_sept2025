@@ -93,7 +93,8 @@ def phase2_preprocess_data(df_in):
 
 def perform_one_hot_encode(df, col_name='Demand_Response_Flag'):
     # One-hot encode using 0/1 for each unique value in Demand_Response_Flag
+    df[col_name] = df[col_name].astype(int)
     site_dummies = pd.get_dummies(df[col_name], prefix=col_name, dtype=int)
     df = pd.concat([df, site_dummies], axis=1)
-    df.drop(columns=[col_name], inplace=True)
+    df.drop(columns=[col_name, col_name+'_0'], inplace=True)
     return df
