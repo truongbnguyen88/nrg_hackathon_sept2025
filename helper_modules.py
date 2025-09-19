@@ -3,6 +3,7 @@ import numpy as np
 import sys
 import os
 import joblib
+from typing import Tuple, Union
 
 # import some libraries for training
 
@@ -77,45 +78,147 @@ def add_time_features(
     return out
 
 
-def add_leak_safe_features(
-    df,
-    ts_col="Timestamp_Local",
-    ft_col="Building_Power_kW",
-    prefix="P",
-    freeze_minutes=15                   # don’t use info closer than this to T
-):
-    g = df.copy()
-    g["ts"] = pd.to_datetime(g[ts_col], errors="coerce")
-    g = g.sort_values("ts").reset_index(drop=True)
+# def add_leak_safe_features(
+#     df,
+#     ts_col="Timestamp_Local",
+#     ft_col="Building_Power_kW",
+#     prefix="P",
+#     freeze_minutes=15                   # don’t use info closer than this to T
+# ):
+#     g = df.copy()
+#     g["ts"] = pd.to_datetime(g[ts_col], errors="coerce")
+#     g = g.sort_values("ts").reset_index(drop=True)
 
-    # infer sampling step (seconds)
-    step_sec = g["ts"].diff().dt.total_seconds().median()
-    if pd.isna(step_sec) or step_sec <= 0: step_sec = 900.0  # fallback 15min
-    to_steps = lambda minutes: max(1, int(round((minutes*60)/step_sec)))
-    steps_1h  = to_steps(60)
-    steps_3h  = to_steps(180)
-    steps_6h  = to_steps(360)
-    steps_12h = to_steps(720)
-    steps_24h = to_steps(1440)
-    freeze_steps = to_steps(freeze_minutes)
+#     # infer sampling step (seconds)
+#     step_sec = g["ts"].diff().dt.total_seconds().median()
+#     if pd.isna(step_sec) or step_sec <= 0: step_sec = 900.0  # fallback 15min
+#     to_steps = lambda minutes: max(1, int(round((minutes*60)/step_sec)))
+#     steps_1h  = to_steps(60)
+#     steps_3h  = to_steps(180)
+#     steps_6h  = to_steps(360)
+#     steps_12h = to_steps(720)
+#     steps_24h = to_steps(1440)
+#     freeze_steps = to_steps(freeze_minutes)
+
+#     s = g[ft_col].astype(float)
+
+#     # Lags (at least freeze_steps into the past)
+#     g[f"{prefix}_lag_1"]   = s.shift(1 + (freeze_steps-1))
+#     g[f"{prefix}_lag_1h"]  = s.shift(steps_1h + (freeze_steps-1))
+#     g[f"{prefix}_lag_3h"]  = s.shift(steps_3h + (freeze_steps-1))
+#     g[f"{prefix}_lag_6h"]  = s.shift(steps_6h + (freeze_steps-1))
+#     g[f"{prefix}_lag_12h"] = s.shift(steps_12h + (freeze_steps-1))
+#     g[f"{prefix}_lag_24h"] = s.shift(steps_24h + (freeze_steps-1))
+
+#     # Rolling means (at least freeze_steps into the past)
+#     g[f"{prefix}_rolling_mean_1h"] = s.shift(freeze_steps).rolling(steps_1h).mean()
+#     g[f"{prefix}_rolling_mean_3h"] = s.shift(freeze_steps).rolling(steps_3h).mean()
+#     g[f"{prefix}_rolling_mean_6h"] = s.shift(freeze_steps).rolling(steps_6h).mean()
+#     g[f"{prefix}_rolling_mean_12h"] = s.shift(freeze_steps).rolling(steps_12h).mean()
+#     g[f"{prefix}_rolling_mean_24h"] = s.shift(freeze_steps).rolling(steps_24h).mean()
+
+#     # Same-hour yesterday/last week baselines (safe by construction)
+#     g[f"{prefix}_same_hour_yday"] = s.shift(steps_24h)
+#     g[f"{prefix}_same_hour_lweek"] = s.shift(7*steps_24h)
+#     # Slopes / changes (past-only)
+#     eps = 1e-6
+#     g[f"{prefix}_delta_1"]  = s.shift(freeze_steps) - s.shift(freeze_steps+1)
+#     g[f"{prefix}_pctchg_1"] = (s.shift(freeze_steps) - s.shift(freeze_steps+1)) / (np.abs(s.shift(freeze_steps+1)) + eps)
+#     g.drop(columns=["ts"], inplace=True)
+#     return g
+
+def add_leak_safe_features(
+    df: pd.DataFrame,
+    ts_col: str = "Timestamp_Local",
+    ft_col: str = "Building_Power_KW",        # or any numeric series
+    prefix: str = "P",
+    freeze_minutes: int = 30,                 # 2× 15-min cadence
+    windows_min: Tuple[int, ...] = (60, 180, 360, 720, 1440),  # 1h, 3h, 6h, 12h, 24h
+    min_frac: float = 1/3,                    # require ≥1/3 of window to compute stats
+    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.Series]]:
+    """
+    Leak-safe lag/rolling features for a single time series (no per-site grouping, no event masking).
+    All rollings are computed on values shifted by `freeze_minutes`, so windows end strictly before t.
+
+    Returns the input df with new columns added. Optionally returns a boolean mask of rows with
+    enough history to train cleanly.
+    """
+    g = df.copy()
+
+    # --------- Parse & clean time ---------
+    g["_ts"] = pd.to_datetime(g[ts_col], errors="coerce")
+    g = g.dropna(subset=["_ts"]).sort_values("_ts").reset_index(drop=True)
+    # Deduplicate timestamps (keep first)
+    # g = (g.groupby("_ts", as_index=False)
+    #      .agg({**{ft_col: "mean"}, **{c: "first" for c in g.columns if c not in ["_ts", ft_col]}}))
+    # g = g.sort_values("_ts").reset_index(drop=True)
+
 
     s = g[ft_col].astype(float)
 
-    # Lags (at least freeze_steps into the past)
-    g[f"{prefix}_lag_1"]   = s.shift(1 + (freeze_steps-1))
-    g[f"{prefix}_lag_1h"]  = s.shift(steps_1h + (freeze_steps-1))
-    g[f"{prefix}_lag_3h"]  = s.shift(steps_3h + (freeze_steps-1))
-    g[f"{prefix}_lag_6h"]  = s.shift(steps_6h + (freeze_steps-1))
-    g[f"{prefix}_lag_12h"] = s.shift(steps_12h + (freeze_steps-1))
-    g[f"{prefix}_lag_24h"] = s.shift(steps_24h + (freeze_steps-1))
-    # Same-hour yesterday/last week baselines (safe by construction)
-    g[f"{prefix}_same_hour_yday"] = s.shift(steps_24h)
-    g[f"{prefix}_same_hour_lweek"] = s.shift(7*steps_24h)
-    # Slopes / changes (past-only)
+    # --------- Infer sampling interval & steps ---------
+    step_sec = g["_ts"].diff().dt.total_seconds().median()
+    if pd.isna(step_sec) or step_sec <= 0:
+        step_sec = 900.0  # fallback: 15 minutes
+    to_steps = lambda m: max(1, int(round((m * 60) / step_sec)))
+
+    windows_min = tuple(sorted(set(int(m) for m in windows_min)))
+    steps_map = {m: to_steps(m) for m in windows_min}
+    freeze_steps = to_steps(freeze_minutes)
+
+    # Helper: consistent names like 60m→1h, 180m→3h, else Xm
+    def _wname(m):
+        if m % 60 == 0:
+            h = m // 60
+            return f"{h}h"
+        return f"{m}m"
+
+    # --------- Lags (freeze-aware) ---------
+    # Note: "lag_1" = one *sampling* step before t, plus the freeze buffer.
+    g[f"{prefix}_lag_1"] = s.shift(1 + (freeze_steps - 1))
+    for m, w in steps_map.items():
+        g[f"{prefix}_lag_{_wname(m)}"] = s.shift(w + (freeze_steps - 1))
+
+    # --------- Rolling stats (past-only) ---------
+    # Compute on series shifted by freeze_steps so the window ends strictly before t.
+    def rstat(x, w_steps, func):
+        w = int(max(1, w_steps))
+        mp = max(1, int(np.ceil(w * min_frac)))
+        x_shift = x.shift(freeze_steps)
+        win = x_shift.rolling(w, min_periods=mp)
+        if   func == "mean":   return win.mean()
+        elif func == "median": return win.median()
+        elif func == "std":    return win.std()
+        elif func == "max":    return win.max()
+        elif func == "min":    return win.min()
+        else: raise ValueError(func)
+
+    for m, w in steps_map.items():
+        g[f"{prefix}_rolling_mean_{_wname(m)}"]   = rstat(s, w, "mean")
+        g[f"{prefix}_rolling_median_{_wname(m)}"] = rstat(s, w, "median")
+        g[f"{prefix}_rolling_std_{_wname(m)}"]    = rstat(s, w, "std")
+        g[f"{prefix}_rolling_max_{_wname(m)}"]    = rstat(s, w, "max")
+        g[f"{prefix}_rolling_min_{_wname(m)}"]    = rstat(s, w, "min")
+
+    # --------- Baselines & dynamics (past-only) ---------
+    day_steps = steps_map.get(1440, to_steps(1440))
+    g[f"{prefix}_same_hour_yday"]  = s.shift(day_steps)
+    g[f"{prefix}_same_hour_lweek"] = s.shift(7 * day_steps)
+
     eps = 1e-6
-    g[f"{prefix}_delta_1"]  = s.shift(freeze_steps) - s.shift(freeze_steps+1)
-    g[f"{prefix}_pctchg_1"] = (s.shift(freeze_steps) - s.shift(freeze_steps+1)) / (np.abs(s.shift(freeze_steps+1)) + eps)
-    g.drop(columns=["ts"], inplace=True)
+    g[f"{prefix}_delta_1"]  = s.shift(freeze_steps) - s.shift(freeze_steps + 1)
+    g[f"{prefix}_pctchg_1"] = (s.shift(freeze_steps) - s.shift(freeze_steps + 1)) / (np.abs(s.shift(freeze_steps + 1)) + eps)
+
+    # Anomalies vs longer windows (e.g., 6h & 24h) using the last known value at freeze time
+    if 360 in steps_map:
+        m = 360
+        g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
+    if 1440 in steps_map:
+        m = 1440
+        g[f"{prefix}_anom_{_wname(m)}"] = s.shift(freeze_steps) - g[f"{prefix}_rolling_mean_{_wname(m)}"]
+
+    # --------- Cleanup ---------
+    g.drop(columns=["_ts"], inplace=True)
     return g
 
 
@@ -158,7 +261,7 @@ def phase2_preprocess_data(df_in):
     # Convert 'Timestamp' to datetime
     df['Timestamp'] = pd.to_datetime(df['Timestamp_Local'])
     # time features
-    freezed_mins = 120
+    freezed_mins = 60
     df = add_time_features(
         df,
         ts_col="Timestamp",
@@ -166,21 +269,21 @@ def phase2_preprocess_data(df_in):
     )
     df = add_leak_safe_features(
         df,
-        ts_col="Timestamp_Local",
+        ts_col="Timestamp",
         ft_col="Building_Power_kW",
         prefix="P",
         freeze_minutes=freezed_mins                   # don’t use info closer than this to T
     )
     df = add_leak_safe_features(
         df,
-        ts_col="Timestamp_Local",
+        ts_col="Timestamp",
         ft_col="Global_Horizontal_Radiation_W/m2",
         prefix="W",
         freeze_minutes=freezed_mins                   # don’t use info closer than this to T
     )
     df = add_leak_safe_features(
         df,
-        ts_col="Timestamp_Local",
+        ts_col="Timestamp",
         ft_col="Dry_Bulb_Temperature_C",
         prefix="T",
         freeze_minutes=freezed_mins                   # don’t use info closer than this to T
